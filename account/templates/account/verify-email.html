@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load i18n %}
+
+{% block title %}تأیید ایمیل{% endblock %}
+
+{% block body %}
+<section class="log-in-section background-image-2 section-b-space">
+  <div class="container-fluid-lg w-100">
+    <div class="row">
+      <!-- Illustration -->
+      <div class="col-xxl-6 col-xl-5 col-lg-6 d-lg-block d-none ms-auto">
+        <div class="image-contain">
+          <img src="{% static 'images/inner-page/log-in.png' %}"
+               class="img-fluid" alt="">
+        </div>
+      </div>
+
+      <!-- Verification form -->
+      <div class="col-xxl-4 col-xl-5 col-lg-6 col-sm-8 mx-auto">
+        <div class="log-in-box">
+          <div class="log-in-title">
+            <h3>
+              {% blocktrans with site_name=site_settings.site_name %}
+                به {{ site_name }} خوش آمدید
+              {% endblocktrans %}
+            </h3>
+            <h4>{% trans "تأیید ایمیل" %}</h4>
+          </div>
+
+          <div class="input-box">
+            <form method="post" class="row g-4">
+              {% csrf_token %}
+
+              {# Non-field errors (e.g. “wrong code”) #}
+              {% if form.non_field_errors %}
+                <div class="alert alert-danger">
+                  <ul class="mb-0">
+                    {% for err in form.non_field_errors %}
+                      <li>{{ err }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              {% endif %}
+
+              <!-- Token input -->
+              <div class="col-12">
+                <div class="form-floating theme-form-floating log-in-form">
+                  <input
+                    type="text"
+                    name="{{ form.token.html_name }}"
+                    id="{{ form.token.id_for_label }}"
+                    class="form-control{% if form.token.errors %} is-invalid{% endif %}"
+                    placeholder="{% trans 'کد تأیید را وارد کنید' %}"
+                    value="{{ form.token.value|default_if_none:'' }}"
+                  >
+                  <label for="{{ form.token.id_for_label }}">
+                    {% trans "کد تأیید ایمیل" %}
+                  </label>
+                  {% if form.token.errors %}
+                    <div class="invalid-feedback d-block">
+                      {% for e in form.token.errors %}
+                        {{ e }}
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-12">
+                <button class="btn btn-animation w-100 justify-content-center" type="submit">
+                  {% trans "تأیید کد" %}
+                </button>
+              </div>
+            </form>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
