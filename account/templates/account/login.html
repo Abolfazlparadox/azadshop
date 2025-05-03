@@ -2,6 +2,16 @@
 {% load static%}
 {% block title %}ورود{% endblock %}
 {% block body %}
+
+{% if user.is_authenticated %}
+  <div class="alert alert-info">
+    <i class="fa fa-info-circle"></i>
+    شما قبلاً وارد شده‌اید
+    <a href="{% url 'user_dashboard' %}" class="alert-link">
+      بازگشت به پیشخوان
+    </a>
+  </div>
+{% else %}
 <!-- log in section start -->
 <section class="log-in-section background-image-2 section-b-space">
     <div class="container-fluid-lg w-100">
@@ -18,6 +28,13 @@
                         <h3>به فست کارت خوش آمدید</h3>
                         <h4>ورود به حساب کاربری</h4>
                     </div>
+                        {% if form.non_field_errors %}
+                          <div class="alert alert-danger">
+                            {% for error in form.non_field_errors %}
+                              <div>{{ error|safe }}</div>
+                            {% endfor %}
+                          </div>
+                        {% endif %}
 
                     <div class="input-box">
                         <form method="post" class="row g-4">
@@ -90,5 +107,5 @@
 </section>
 
 <!-- log in section end -->
-
+{% endif %}
 {% endblock %}

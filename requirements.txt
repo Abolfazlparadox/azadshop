@@ -1,0 +1,16 @@
+pip~=25.0.1
+cryptography~=44.0.2
+pillow~=11.1.0
+redis~=5.2.1
+Django~=5.1.7
+django-guardian~=2.4.0
+django-import-export~=4.3.7
+django-ratelimit~=4.1.0
+django-phonenumber-field~=8.0.0
+jalali_core~=1.0.0
+django-extensions~=3.2.3
+django-richtextfield~=1.6.2
+django-guardian==2.4.0
+django-ratelimit==3.0.1
+django-jalali==6.0.0
+cryptography==41.0.7

@@ -1,24 +1,32 @@
 # account/admin.py
+from time import timezone
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
-from guardian.admin import GuardedModelAdmin
 from import_export.admin import ImportExportModelAdmin
 from .models import User, Membership, Address
 
 
-def _is_super_or_global_admin(user):
-    return user.is_superuser or user.is_staff  # adjust if you have a global-admin flag
+class UnitOfficerAdminSite(admin.AdminSite):
+    site_header = "پنل مدیریت دبیر رفاهی واحد"
+    site_title = "مدیریت محتوای دانشگاهی"
+    index_title = "داشبورد مدیریت"
 
+    def has_permission(self, request):
+        return request.user.memberships.filter(
+            role='OFFI',
+            is_confirmed=True
+        ).exists()
+
+unit_admin = UnitOfficerAdminSite(name='unit_admin')
+
+def _is_super_or_global_admin(user):
+    return user.is_superuser or user.is_staff
 
 @admin.register(User)
 class UserAdminCustom(ImportExportModelAdmin, BaseUserAdmin):
-    """
-    - Shows avatar preview, username, full name, active-role, etc.
-    - City-officers only see users in their city.
-    """
     list_display = (
         'avatar_preview',
         'username',
@@ -62,10 +70,15 @@ class UserAdminCustom(ImportExportModelAdmin, BaseUserAdmin):
 
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related('province', 'city')
-        # City-officers only see users in their city
-        if not request.user.is_superuser and request.user.active_role_display == 'دبیر رفاهی واحد':
-            qs = qs.filter(city=request.user.city)
-        return qs.prefetch_related('groups', 'user_permissions')
+        if not request.user.is_superuser:
+            if request.user.memberships.filter(role='OFFI', is_confirmed=True).exists():
+                # فیلتر بر اساس دانشگاه کاربر
+                user_university = request.user.memberships.get(
+                    role='OFFI',
+                    is_confirmed=True
+                ).university
+                qs = qs.filter(memberships__university=user_university)
+        return qs.distinct()
 
     def avatar_preview(self, obj):
         if obj.avatar:
@@ -83,47 +96,67 @@ class UserAdminCustom(ImportExportModelAdmin, BaseUserAdmin):
         return _is_super_or_global_admin(request.user)
 
     def has_change_permission(self, request, obj=None):
-        # allow users to edit themselves
-        if obj is not None and obj == request.user:
+        if obj and obj == request.user:
             return True
         return _is_super_or_global_admin(request.user)
 
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
 
-
 @admin.register(Membership)
-class MembershipAdmin(GuardedModelAdmin):
-    """
-    - superusers see all
-    - city-officers see only memberships in their city
-    """
+class MembershipAdmin(admin.ModelAdmin):  # تغییر از GuardedModelAdmin به ModelAdmin
+    actions = ['confirm_selected']
     list_display = ('user', 'university', 'role', 'is_confirmed', 'requested_at')
     list_filter = ('role', 'is_confirmed', 'university__city')
     search_fields = ('user__username', 'university__name')
     readonly_fields = ('requested_at', 'confirmed_at')
 
+    def confirm_selected(self, request, queryset):
+        updated = queryset.update(is_confirmed=True, confirmed_at=timezone.now())
+        self.message_user(request, f"{updated} عضویت تأیید شد")
+
+    confirm_selected.short_description = _("تأیید عضویت‌های انتخاب شده")
+
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related('university__city', 'user')
-        user = request.user
-        if not user.is_superuser and user.active_role_display == 'دبیر رفاهی واحد':
-            qs = qs.filter(university__city=user.city)
+        if not request.user.is_superuser:
+            if request.user.memberships.filter(role='OFFI', is_confirmed=True).exists():
+                user_university = request.user.memberships.get(
+                    role='OFFI',
+                    is_confirmed=True
+                ).university
+                qs = qs.filter(university=user_university)
         return qs
 
-
 @admin.register(Address)
-class AddressAdmin(GuardedModelAdmin):
-    """
-    - superusers see all
-    - city-officers see only addresses in their city
-    """
+class AddressAdmin(admin.ModelAdmin):  # تغییر از GuardedModelAdmin به ModelAdmin
     list_display = ('user', 'name', 'category', 'province', 'city', 'active')
     list_filter = ('province', 'city', 'active')
     search_fields = ('user__username', 'name', 'address')
 
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related('user', 'province', 'city')
-        user = request.user
-        if not user.is_superuser and user.active_role_display == 'دبیر رفاهی واحد':
-            qs = qs.filter(city=user.city)
-        return qs
+        if not request.user.is_superuser:
+            if request.user.memberships.filter(role='OFFI', is_confirmed=True).exists():
+                user_university = request.user.memberships.get(
+                    role='OFFI',
+                    is_confirmed=True
+                ).university
+                qs = qs.filter(user__memberships__university=user_university)
+        return qs.distinct()
+
+# ثبت مدل‌ها در پنل سفارشی
+@admin.register(Membership, site=unit_admin)
+class UnitMembershipAdmin(admin.ModelAdmin):
+    list_display = ('user', 'university', 'role', 'is_confirmed')
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        user_university = request.user.memberships.get(role='OFFI').university
+        return qs.filter(university=user_university)
+
+    def has_add_permission(self, request):
+        return False  # غیرفعال کردن ایجاد عضویت جدید در پنل واحد
+
+    def has_delete_permission(self, request, obj=None):
+        return False  #

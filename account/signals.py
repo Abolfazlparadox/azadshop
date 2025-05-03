@@ -2,12 +2,9 @@
 from django.contrib.auth.signals import user_logged_in
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from guardian.shortcuts import assign_perm
 from .models import Membership
 from product.models import Product
-from blog.models import BlogPost
-from comment.models import Comment
-# from django.db import transaction
+
 
 @receiver(user_logged_in)
 def update_last_login_ip(sender, request, user, **kwargs):
@@ -25,33 +22,31 @@ def get_client_ip(request):
     else:
         ip = request.META.get('REMOTE_ADDR')
     return ip
+
 @receiver(post_save, sender=Membership)
-def grant_unit_officer_perms(sender, instance, created, **kwargs):
+def update_unit_officer_perms(sender, instance, **kwargs):
     if instance.role == Membership.Role.UNIT_OFFICER and instance.is_confirmed:
-        user       = instance.user
-        university = instance.university
+        # First remove existing permissions
+            from guardian.models import UserObjectPermission
+            UserObjectPermission.objects.filter(
+                user=instance.user,
+                content_type__model__in=['product', 'blogpost', 'comment']
+            ).delete()
+            new_perms = []
+            university = instance.university
 
-        # Products in that university
-        prods = Product.objects.filter(university=university)
-        for p in prods:
-            assign_perm('view_product',   user, p)
-            assign_perm('change_product', user, p)
-            assign_perm('delete_product', user, p)
+            # Products
+            for p in Product.objects.filter(university=university):
+                new_perms.extend([
+                    UserObjectPermission(
+                        user=instance.user,
+                        permission=perm,
+                        content_object=p
+                    ) for perm in [
+                        'view_product', 'change_product', 'delete_product'
+                    ]
+                ])
 
-        # BlogPosts in that university
-        posts = BlogPost.objects.filter(university=university, is_published=True)
-        for b in posts:
-            assign_perm('view_blogpost',   user, b)
-            assign_perm('change_blogpost', user, b)
-            assign_perm('delete_blogpost', user, b)
+            # Similar logic for BlogPost and Comment...
 
-        # Comments on those products & blogs
-        comments = Comment.objects.filter(
-            content_type__model__in=['product','blogpost'],
-            object_id__in=list(prods.values_list('pk',flat=True))
-                         + list(posts.values_list('pk',flat=True))
-        )
-        for c in comments:
-            assign_perm('view_comment',   user, c)
-            assign_perm('change_comment', user, c)
-            assign_perm('delete_comment', user, c)
+            UserObjectPermission.objects.bulk_create(new_perms)

@@ -1,3 +1,6 @@
+import random
+from datetime import timedelta
+
 from django.contrib.auth.models import AbstractUser, PermissionsMixin
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -10,12 +13,24 @@ from iranian_cities.models import Province, City
 from django.conf import settings
 from university.models import University
 
-
 def validate_national_code(value):
+    # Basic checks
     if len(value) != 10 or not value.isdigit():
         raise ValidationError(_('کد ملی باید 10 رقم باشد'))
-    # TODO: add official checksum logic here
 
+    # Check for invalid sequences
+    if value in ['0000000000', '1111111111', '2222222222', '3333333333',
+                 '4444444444', '5555555555', '6666666666', '7777777777',
+                 '8888888888', '9999999999']:
+        raise ValidationError(_('کد ملی نامعتبر است'))
+
+    # Checksum calculation
+    check = int(value[9])
+    s = sum(int(value[i]) * (10 - i) for i in range(9)) % 11
+    valid = (s < 2 and check == s) or (s >= 2 and check == (11 - s))
+
+    if not valid:
+        raise ValidationError(_('کد ملی نامعتبر است'))
 
 class CustomUserQuerySet(models.QuerySet):
     def alive(self):
@@ -23,7 +38,6 @@ class CustomUserQuerySet(models.QuerySet):
 
     def deleted(self):
         return self.filter(is_deleted=True)
-
 
 class CustomUserManager(UserManager.from_queryset(CustomUserQuerySet)):
     """Single manager: .alive() & .deleted() available."""
@@ -36,10 +50,10 @@ class User(AbstractUser):
     email = models.EmailField(_('آدرس ایمیل'),unique=True,error_messages={'unique': _("این ایمیل قبلا ثبت شده است.")})
     # Security Fields
     last_login_ip = models.GenericIPAddressField(_('آخرین آی پی ورود'), null=True, blank=True)
-
+    failed_login_attempts = models.PositiveIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
     otp_secret = models.CharField(_('کلید OTP'), max_length=32, blank=True)
-    email_verified = models.BooleanField(default=False,verbose_name='ایمیل تأیید شده')
-    email_verification_token = models.CharField(max_length=64,blank=True,editable=False,verbose_name='توکن تأیید ایمیل')
+
     is_verified = models.BooleanField(_('تایید شده'),default=False,help_text=_('آیا حساب کاربری توسط مدیریت تایید شده است؟'))
     is_staff = models.BooleanField(_('وضعیت کارکنان'),default=False,help_text=_('مشخص می کند که آیا کاربر می تواند به این سایت مدیریت وارد شود یا خیر.'),)
     is_active = models.BooleanField(_('فعال'),default=True,help_text=_('مشخص می کند که آیا این کاربر باید به عنوان فعال در نظر گرفته شود.'),)
@@ -68,12 +82,49 @@ class User(AbstractUser):
     updated_at = models.DateTimeField(_('آخرین بروزرسانی'), auto_now=True)
     objects = CustomUserManager()
     deleted_objects = UserManager()  # For accessing deleted users
+    email_verified = models.BooleanField(
+        _("ایمیل تأیید شده"),
+        default=False,
+        help_text=_("تعیین می‌کند که آیا کاربر ایمیل خود را تأیید کرده است")
+    )
+    email_verification_code = models.CharField(max_length=6, null=True, blank=True)
+    email_verification_code_created = models.DateTimeField(null=True, blank=True)
+
+    def generate_email_verification_code(self):
+        """Generate 6-digit numeric code"""
+        code = str(random.randint(100000, 999999))  # 6-digit number
+        self.email_verification_code = code
+        self.email_verification_code_created = timezone.now()
+        self.save(update_fields=['email_verification_code', 'email_verification_code_created'])
+        return code
+
+    def is_verification_code_expired(self):
+        """Check if code is expired (15 minutes)"""
+        if not self.email_verification_code_created:
+            return True
+        expiration = self.email_verification_code_created + timezone.timedelta(minutes=15)
+        return timezone.now() > expiration
+
+    def clear_verification_code(self):
+        self.email_verification_code = None
+        self.email_verification_code_created = None
+        self.save(update_fields=['email_verification_code', 'email_verification_code_created'])
+
     class Level(models.IntegerChoices):
         UNVERIFIED = 0, _('عدم تأیید ایمیل')
         EMAIL_CONFIRMED = 1, _('کاربر تأییدشده ایمیل')
         PROFILE_COMPLETED = 2, _('پروفایل تکمیل‌شده')
         MEMBERSHIP_CONFIRMED = 3, _('عضویت تأییدشده')
 
+    @property
+    def is_locked(self):
+        return self.locked_until and timezone.now() < self.locked_until
+
+    def check_lock_expiry(self):
+        if self.locked_until and timezone.now() > self.locked_until:
+            self.locked_until = None
+            self.failed_login_attempts = 0
+            self.save()
     @property
     def access_level(self) -> int:
         """
@@ -86,11 +137,15 @@ class User(AbstractUser):
         if not self.email_verified:
             return self.Level.UNVERIFIED
         # 2: Profile fields check
-        required = [self.first_name, self.last_name, self.email,
-                    self.mobile, self.national_code, self.birthday,
-                    self.avatar, self.province, self.city,
-                    self.address, self.postal_code]
-        if any(v in (None, "") for v in required):
+        required_fields = [
+            self.first_name,
+            self.last_name,
+            self.mobile,
+            self.national_code,
+            self.province,
+            self.city
+        ]
+        if any(v in (None, "") for v in required_fields):
             return self.Level.EMAIL_CONFIRMED
         # 3: Confirmed membership
         if self.memberships.filter(is_confirmed=True).exists():
@@ -114,21 +169,20 @@ class User(AbstractUser):
         return self.username
 
     def save(self, *args, **kwargs):
-        """Ensure last_login_ip is preserved during updates"""
-        update_fields = kwargs.get('update_fields')
-        if update_fields and 'last_login_ip' not in update_fields:
-            kwargs['update_fields'] = set(update_fields).union({'last_login_ip'})
         super().save(*args, **kwargs)
     def soft_delete(self):
         self.is_deleted = True
         self.deleted_at = timezone.now()
         self.save()
+
     def generate_email_token(self):
-        # Use uuid4 hex, or secrets.token_hex()
         token = uuid.uuid4().hex
         self.email_verification_token = token
-        self.email_verified = False
-        self.save(update_fields=['email_verification_token', 'email_verified'])
+        self.email_verification_token_created = timezone.now()
+        self.save(update_fields=[
+            'email_verification_token',
+            'email_verification_token_created'
+        ])  # Ensure immediate save
         return token
     @property
     def active_role_display(self):

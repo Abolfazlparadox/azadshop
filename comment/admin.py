@@ -3,7 +3,9 @@
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.admin import GenericTabularInline
-from guardian.admin import GuardedModelAdmin
+from django.contrib.contenttypes.models import ContentType
+from django.db import models
+from .models import Comment
 
 from .models import Comment
 
@@ -22,11 +24,7 @@ class CommentInline(GenericTabularInline):
 
 
 @admin.register(Comment)
-class CommentAdmin(GuardedModelAdmin):
-    """
-    Guardian-enabled admin for Comment model.
-    Only shows objects user has permission to view/change.
-    """
+class CommentAdmin(admin.ModelAdmin):
     list_display = (
         'short_content', 'user', 'content_object',
         'rating', 'likes', 'is_approved', 'created_at'
@@ -37,9 +35,7 @@ class CommentAdmin(GuardedModelAdmin):
     readonly_fields = ('created_at', 'updated_at')
     date_hierarchy = 'created_at'
     actions = ['approve_comments', 'disapprove_comments']
-    list_select_related = ('user',)
-
-    inlines = [CommentInline]
+    list_select_related = ('user', 'content_type')
 
     fieldsets = (
         (None, {
@@ -57,9 +53,48 @@ class CommentAdmin(GuardedModelAdmin):
         }),
     )
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        user = request.user
+
+        # دسترسی کامل برای سوپریوزرها
+        if user.is_superuser:
+            return qs
+
+        # دریافت دانشگاه کاربر از پروفایل
+        try:
+            user_university = user.profile.university
+        except AttributeError:
+            return qs.none()
+
+        # فیلتر بر اساس دانشگاه از طریق content_object
+        content_types = ContentType.objects.all()
+        valid_ct = []
+        for ct in content_types:
+            model = ct.model_class()
+            if model and hasattr(model, 'university'):
+                valid_ct.append(ct)
+
+        queries = []
+        for ct in valid_ct:
+            model = ct.model_class()
+            obj_ids = model.objects.filter(
+                university=user_university
+            ).values_list('id', flat=True)
+            queries.append(models.Q(content_type=ct, object_id__in=obj_ids))
+
+        if queries:
+            combined_query = queries.pop()
+            for query in queries:
+                combined_query |= query
+            qs = qs.filter(combined_query)
+        else:
+            qs = qs.none()
+
+        return qs.distinct().select_related('user', 'content_type')
+
     def short_content(self, obj):
-        text = obj.content or ''
-        return text if len(text) <= 50 else text[:47] + '...'
+        return obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
     short_content.short_description = _('متن دیدگاه')
 
     @admin.action(description=_("تأیید دیدگاه‌های انتخاب‌شده"))

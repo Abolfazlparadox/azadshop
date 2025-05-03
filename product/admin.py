@@ -1,19 +1,11 @@
 from time import timezone
-
 from django.contrib import admin
 from django.utils.html import format_html
 from django.db.models import Count, F
 from django.utils.translation import gettext_lazy as _
-from guardian.shortcuts import get_objects_for_user
 from django_admin_listfilter_dropdown.filters import RelatedDropdownFilter
 from admin_auto_filters.filters import AutocompleteFilter
-from guardian.admin import GuardedModelAdmin
-
-from .models import (
-    Product, ProductCategory, ProductBrand,
-    ProductVariant, ProductImage, ProductReview,
-    Discount, ProductView
-)
+from .models import (Product, ProductCategory, ProductBrand,ProductVariant, ProductImage, ProductReview,Discount, ProductView)
 
 
 # --------------------------------------------------------------------------
@@ -75,32 +67,56 @@ class InventoryFilter(admin.SimpleListFilter):
         return queryset
 
 
+class UniversityAccessAdmin(admin.ModelAdmin):
+    """کلاس پایه برای دسترسی مبتنی بر دانشگاه"""
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+
+        # اگر کاربر سوپر یوزر است همه چیز را ببینید
+        if request.user.is_superuser:
+            return qs
+
+        # دریافت دانشگاه‌های کاربر با نقش دبیر رفاهی واحد
+        universities = request.user.memberships.filter(
+            role='OFFI',
+            is_confirmed=True
+        ).values_list('university', flat=True)
+
+        # فیلتر بر اساس دانشگاه
+        return qs.filter(university__in=universities)
+
+    def save_model(self, request, obj, form, change):
+        # تنظیم خودکار دانشگاه هنگام ایجاد رکورد جدید
+        if not change and not obj.university:
+            membership = request.user.memberships.filter(
+                role='OFFI',
+                is_confirmed=True
+            ).first()
+            if membership:
+                obj.university = membership.university
+        super().save_model(request, obj, form, change)
+
 # --------------------------------------------------------------------------
 # ProductCategory & Brand
 # --------------------------------------------------------------------------
 
 @admin.register(ProductCategory)
-class ProductCategoryAdmin(GuardedModelAdmin):
-    list_display = ('title','product_count','is_active')
-    search_fields = ('title','slug')
+class ProductCategoryAdmin(UniversityAccessAdmin):
+    list_display = ('title', 'product_count', 'is_active')
+    search_fields = ('title', 'slug')
     prepopulated_fields = {'slug': ('title',)}
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request).annotate(product_count=Count('products'))
-        if request.user.is_superuser:
-            return qs
-        # only categories for which user has change permission on at least one product
-        return qs.filter(products__in=request.user.get_objects_for_perm('product.change_product', Product)).distinct()
-
     def product_count(self, obj):
-        return obj.product_count
+        return obj.products.count()
     product_count.short_description = _('تعداد محصولات')
 
 
+
 @admin.register(ProductBrand)
-class ProductBrandAdmin(GuardedModelAdmin):
-    list_display = ('title','logo_preview','product_count')
-    search_fields = ('title','slug')
+class ProductBrandAdmin(UniversityAccessAdmin):
+    list_display = ('title', 'logo_preview', 'product_count')
+    search_fields = ('title', 'slug')
     prepopulated_fields = {'slug': ('title',)}
 
     def logo_preview(self, obj):
@@ -109,58 +125,41 @@ class ProductBrandAdmin(GuardedModelAdmin):
         return "-"
     logo_preview.short_description = _('لوگو')
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        # only brands tied to products this user can change
-        allowed = request.user.get_objects_for_perm('product.change_product', Product)
-        return qs.filter(product__in=allowed).distinct()
-
     def product_count(self, obj):
-        return obj.product_set.filter(pk__in=self.request.user.get_objects_for_perm('product.change_product', Product)).count()
+        return obj.product_set.count()
     product_count.short_description = _('تعداد محصولات')
-
 
 # --------------------------------------------------------------------------
 # Product
 # --------------------------------------------------------------------------
 
 @admin.register(Product)
-class ProductAdmin(GuardedModelAdmin):
+class ProductAdmin(UniversityAccessAdmin):
     list_display = (
-        'image_preview','title','price','current_price',
-        'stock_status','sku','brand','category_list'
+        'image_preview', 'title', 'price', 'current_price',
+        'stock_status', 'sku', 'brand', 'category_list'
     )
     list_filter = (
         CategoryFilter, InventoryFilter,
         ('brand', RelatedDropdownFilter),
         ('created_at', admin.DateFieldListFilter),
     )
-    search_fields = ('title','sku','brand__title','short_description')
+    search_fields = ('title', 'sku', 'brand__title', 'short_description')
     prepopulated_fields = {'slug': ('title',)}
     inlines = [ProductVariantInline, ProductImageInline]
-    autocomplete_fields = ['categories','tags']
-    readonly_fields = ('current_price','sku',)
+    autocomplete_fields = ['categories', 'tags']
+    readonly_fields = ('current_price', 'sku',)
     filter_horizontal = ('categories',)
     raw_id_fields = ('brand',)
-    actions = ['restock_products','toggle_active']
+    actions = ['restock_products', 'toggle_active']
 
     fieldsets = (
-        (None, {'fields': ('title','slug','brand','categories','tags','university')}),
-        (_('قیمت‌گذاری'), {'fields': ('price','old_price','current_price')}),
-        (_('موجودی'),     {'fields': ('stock','weight','dimensions')}),
-        (_('توضیحات'),   {'fields': ('main_image','short_description')}),
-        (_('وضعیت'),     {'fields': ('is_active','is_deleted')}),
+        (None, {'fields': ('title', 'slug', 'brand', 'categories', 'tags', 'university')}),
+        (_('قیمت‌گذاری'), {'fields': ('price', 'old_price', 'current_price')}),
+        (_('موجودی'), {'fields': ('stock', 'weight', 'dimensions')}),
+        (_('توضیحات'), {'fields': ('main_image', 'short_description')}),
+        (_('وضعیت'), {'fields': ('is_active', 'is_deleted')}),
     )
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request).select_related('brand','university')
-        if request.user.is_superuser:
-            return qs
-        # city- or university-scoped admin:
-        # user has object perms on specific products
-        return request.user.get_objects_for_perm('product.change_product', Product)
 
     def image_preview(self, obj):
         if obj.main_image:
@@ -193,33 +192,30 @@ class ProductAdmin(GuardedModelAdmin):
         self.message_user(request, _('وضعیت محصولات تغییر یافت.'))
 
 
+
 # --------------------------------------------------------------------------
 # Reviews, Discounts, Views
 # --------------------------------------------------------------------------
 
 @admin.register(ProductReview)
-class ProductReviewAdmin(GuardedModelAdmin):
-    list_display = ('product','user','rating','verified_purchase','created_at')
-    list_filter  = ('rating','verified_purchase','created_at')
-    raw_id_fields = ('product','user')
-    readonly_fields = ('created_at','updated_at')
-    search_fields = ('product__title','user__username')
+class ProductReviewAdmin(UniversityAccessAdmin):
+    list_display = ('product', 'user', 'rating', 'verified_purchase', 'created_at')
+    list_filter = ('rating', 'verified_purchase', 'created_at')
+    raw_id_fields = ('product', 'user')
+    readonly_fields = ('created_at', 'updated_at')
+    search_fields = ('product__title', 'user__username')
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        # only reviews on products user can change
-        allowed = request.user.get_objects_for_perm('product.change_product', Product)
-        return qs.filter(product__in=allowed)
+        return qs.filter(product__university__in=self.get_user_universities(request))
 
 
 @admin.register(Discount)
-class DiscountAdmin(GuardedModelAdmin):
-    list_display = ('code','discount_type','amount','valid_status','usage_status')
-    list_filter = ('discount_type','valid_from','valid_to')
-    filter_horizontal = ('products','categories')
-    search_fields = ('code','description')
+class DiscountAdmin(UniversityAccessAdmin):
+    list_display = ('code', 'discount_type', 'amount', 'valid_status', 'usage_status')
+    list_filter = ('discount_type', 'valid_from', 'valid_to')
+    filter_horizontal = ('products', 'categories')
+    search_fields = ('code', 'description')
     date_hierarchy = 'valid_from'
     actions = ['validate_discounts']
 
@@ -238,13 +234,6 @@ class DiscountAdmin(GuardedModelAdmin):
         return _('نامحدود')
     usage_status.short_description = _('استفاده')
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        allowed = request.user.get_objects_for_perm('product.change_product', Product)
-        return qs.filter(products__in=allowed).distinct()
-
     @admin.action(description=_("بررسی اعتبار"))
     def validate_discounts(self, request, queryset):
         invalid = [d.code for d in queryset if not d.is_valid()]
@@ -255,15 +244,8 @@ class DiscountAdmin(GuardedModelAdmin):
 
 
 @admin.register(ProductView)
-class ProductViewAdmin(GuardedModelAdmin):
-    list_display = ('product','user','ip_address','timestamp')
-    list_filter  = ('timestamp',('product',RelatedDropdownFilter))
-    search_fields = ('product__title','user__username','ip_address')
-    readonly_fields = ('timestamp','session_key')
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        allowed = request.user.get_objects_for_perm('product.change_product', Product)
-        return qs.filter(product__in=allowed)
+class ProductViewAdmin(UniversityAccessAdmin):
+    list_display = ('product', 'user', 'ip_address', 'timestamp')
+    list_filter = ('timestamp', ('product', RelatedDropdownFilter))
+    search_fields = ('product__title', 'user__username', 'ip_address')
+    readonly_fields = ('timestamp', 'session_key')

@@ -4,6 +4,11 @@
 {% block title %}داشبورد{% endblock %}
 {% block body %}
 <!-- User Dashboard Section Start -->
+{% if user.access_level < 2 %}
+<div class="alert alert-warning">
+    لطفا اطلاعات پروفایل خود را کامل کنید تا بتوانید درخواست نقش ارسال کنید
+</div>
+{% endif %}
 <section class="user-dashboard-section section-b-space">
     <div class="container-fluid-lg">
         <div class="row">
@@ -184,7 +189,7 @@
                                         <div class="dashboard-detail">
                                             <h6 class="text-content">{{ user.get_full_name }}</h6>
                                             <h6 class="text-content">{{ user.email }}</h6>
-                                            <a href="{% url 'reset_password' %}">تغییر رمز عبور</a>
+                                           <a href="{% url 'change_password' %}">تغییر رمز عبور</a>
                                         </div>
                                     </div>
 
@@ -1925,7 +1930,16 @@
 <div class="modal fade theme-modal" id="editProfile" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered modal-fullscreen-sm-down">
         <div class="modal-content">
-        <form method="post" enctype="multipart/form-data" action="{% url 'user_dashboard' %}">
+            {% if messages %}
+                <div class="col-12">
+                  {% for message in messages %}
+                  <div class="alert alert-{% if message.tags %}{{ message.tags }}{% endif %}">
+                    {{ message }}
+                  </div>
+                  {% endfor %}
+                </div>
+            {% endif %}
+        <form method="post" enctype="multipart/form-data">
           {% csrf_token %}
           {{ form.non_field_errors }}
           <div class="modal-header">

@@ -1,7 +1,21 @@
 {% extends 'base.html' %}
 {% load static %}
 {% load i18n %}
+{% block head %}
+    <style>
+        .invalid-feedback {
+            display: block;
+            margin-top: 0.25rem;
+            font-size: 0.875em;
+            color: #dc3545;
+                }
 
+        .alert-link {
+            font-weight: bold;
+            text-decoration: underline;
+        }
+    </style>
+{% endblock %}
 {% block title %}تأیید ایمیل{% endblock %}
 
 {% block body %}
@@ -29,52 +43,98 @@
           </div>
 
           <div class="input-box">
-            <form method="post" class="row g-4">
-              {% csrf_token %}
+            {% if user.email_verified %}
+              <div class="alert alert-success">
+                <i class="fas fa-check-circle"></i>
+                ایمیل شما قبلاً تأیید شده است
+                <a href="{% url 'user_dashboard' %}" class="alert-link">
+                  بازگشت به پیشخوان
+                </a>
+              </div>
+            {% else %}
+              {# Show verification form #}
+            {% endif %}
+              <!-- Main Verification Form -->
+              <form method="post" class="row g-4">
+                {% csrf_token %}
 
-              {# Non-field errors (e.g. “wrong code”) #}
-              {% if form.non_field_errors %}
-                <div class="alert alert-danger">
-                  <ul class="mb-0">
-                    {% for err in form.non_field_errors %}
-                      <li>{{ err }}</li>
+                <!-- System Messages -->
+                {% if messages %}
+                  <div class="col-12">
+                    {% for message in messages %}
+                      <div class="alert alert-{{ message.tags }}">
+                        {{ message|safe }}
+                      </div>
                     {% endfor %}
-                  </ul>
-                </div>
-              {% endif %}
+                  </div>
+                {% endif %}
 
-              <!-- Token input -->
-              <div class="col-12">
-                <div class="form-floating theme-form-floating log-in-form">
-                  <input
-                    type="text"
-                    name="{{ form.token.html_name }}"
-                    id="{{ form.token.id_for_label }}"
-                    class="form-control{% if form.token.errors %} is-invalid{% endif %}"
-                    placeholder="{% trans 'کد تأیید را وارد کنید' %}"
-                    value="{{ form.token.value|default_if_none:'' }}"
-                  >
-                  <label for="{{ form.token.id_for_label }}">
-                    {% trans "کد تأیید ایمیل" %}
-                  </label>
-                  {% if form.token.errors %}
-                    <div class="invalid-feedback d-block">
-                      {% for e in form.token.errors %}
-                        {{ e }}
+                <!-- Form Errors -->
+                {% if form.non_field_errors %}
+                  <div class="col-12">
+                    <div class="alert alert-danger">
+                      {% for error in form.non_field_errors %}
+                        {{ error }}
                       {% endfor %}
                     </div>
-                  {% endif %}
+                  </div>
+                {% endif %}
+
+                <!-- Token Input -->
+                <div class="col-12">
+                  <div class="form-floating theme-form-floating log-in-form">
+                    <div class="form-group">
+                      <label for="{{ form.token.id_for_label }}">کد تأیید</label>
+                      <input
+                        type="text"
+                        name="{{ form.token.name }}"
+                        id="{{ form.token.id_for_label }}"
+                        class="form-control {% if form.token.errors %}is-invalid{% endif %}"
+                        placeholder="کد ۶ رقمی ارسال شده"
+                        value="{{ form.token.value|default:'' }}"
+                        required
+                        autofocus
+                      >
+                      {% if form.token.errors %}
+                        <div class="invalid-feedback">
+                          {% for error in form.token.errors %}
+                            {{ error }}
+                          {% endfor %}
+                        </div>
+                      {% endif %}
+                    </div>
+                  </div>
                 </div>
+
+                <!-- Submit Button -->
+                <div class="col-12">
+                  <button type="submit" class="btn btn-primary w-100">
+                    تأیید کد
+                  </button>
+                </div>
+              </form>
+
+              <!-- Resend Code Form -->
+              <div class="col-12 text-center mt-3">
+                <form method="post" action="{% url 'resend-verification' pk=user.pk %}">
+                  {% csrf_token %}
+                  <p class="text-muted mb-1">کد دریافت نکردید؟</p>
+                  <button type="submit" class="btn btn-link">
+                    ارسال مجدد کد تأیید
+                  </button>
+                </form>
               </div>
 
-              <div class="col-12">
-                <button class="btn btn-animation w-100 justify-content-center" type="submit">
-                  {% trans "تأیید کد" %}
-                </button>
+              <!-- Debug Info -->
+              {% if debug %}
+              <div class="mt-4 alert alert-info">
+                <h5>اطلاعات اشکال‌زدایی:</h5>
+                <p>شناسه کاربر: {{ user.pk }}</p>
+                <p>توکن فعلی: {{ user.email_verification_token|default:"بدون توکن" }}</p>
+                <p>زمان ایجاد توکن: {{ user.email_verification_token_created|default:"وجود ندارد" }}</p>
               </div>
-            </form>
+              {% endif %}
           </div>
-
         </div>
       </div>
     </div>
