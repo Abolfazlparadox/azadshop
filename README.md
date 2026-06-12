@@ -1,3 +1,4 @@
+
 # 🛒 Azad Shop: Distributed E-Commerce API
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg?logo=python&logoColor=white)
@@ -29,3 +30,58 @@ To get the project up and running on your local machine using Docker:
    ```bash
    git clone [https://github.com/Abolfazlparadox/azadshop.git](https://github.com/Abolfazlparadox/azadshop.git)
    cd azadshop
+
+
+
+2. **Environment Variables:**
+Create a `.env` file in the root directory and configure your variables:
+```env
+SECRET_KEY=your_secret_key
+DEBUG=True
+DB_NAME=azadshop_db
+DB_USER=postgres
+DB_PASSWORD=postgres
+
+```
+
+
+3. **Build and Run with Docker:**
+```bash
+docker-compose up --build
+
+```
+
+
+4. **Apply Migrations:**
+```bash
+docker-compose exec web python manage.py migrate
+
+```
+
+
+5. **Create Superuser:**
+```bash
+docker-compose exec web python manage.py createsuperuser
+
+```
+
+
+
+The API will be available at `http://localhost:8000/`.
+
+## 📂 Project Structure
+
+Briefly explaining the core modules of the system:
+
+* `/users`: Authentication, profile management, and role definitions.
+* `/products`: Catalog management, inventory tracking, and categories.
+* `/orders`: Checkout processing, order history, and status tracking.
+* `/core`: Global configurations, custom exceptions, and base models.
+
+## ✉️ Contact
+
+**Abolfazl Mohammadshahi** Software Engineer
+
+LinkedIn: [Your LinkedIn URL]
+
+Email: [abolfazlmohammadshahi78@gmail.com]
