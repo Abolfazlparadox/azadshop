@@ -82,6 +82,6 @@ Briefly explaining the core modules of the system:
 
 **Abolfazl Mohammadshahi** Software Engineer
 
-LinkedIn: [Your LinkedIn URL]
+LinkedIn: [https://www.linkedin.com/in/abolfazl-mohammadshahi-12b87b324]
 
 Email: [abolfazlmohammadshahi78@gmail.com]
